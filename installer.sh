@@ -107,5 +107,5 @@ printf "\n"
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     printf "${BLUE}Running SSH to Bitwarden generator...${NC}\n"
     printf "\n"
-    python3 "$SCRIPT_PATH"
+    python3 "$SCRIPT_PATH" < /dev/tty
 fi

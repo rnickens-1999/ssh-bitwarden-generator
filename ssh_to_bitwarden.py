@@ -11,8 +11,25 @@ import os
 import glob
 import subprocess
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
+
+def get_interactive_input(prompt):
+    """Get interactive input, handling cases where stdin might not be available."""
+    try:
+        # Try to read from /dev/tty first (works better in scripts)
+        if os.path.exists('/dev/tty'):
+            with open('/dev/tty', 'r') as tty:
+                print(prompt, end='', flush=True)
+                return tty.readline().strip()
+        else:
+            # Fallback to regular input
+            return input(prompt).strip()
+    except (EOFError, OSError):
+        # If we can't get interactive input, return a default
+        print(f"\nCannot read interactive input. Defaulting to processing all keys.")
+        return 'all'
 
 def get_key_info(private_key_path):
     """Extract information about an SSH key using ssh-keygen."""
@@ -162,7 +179,7 @@ def main():
     print("  - Enter 'all' to process all keys")
     print("  - Enter 'q' to quit")
     
-    selection = input("\nYour choice: ").strip().lower()
+    selection = get_interactive_input("\nYour choice: ").lower()
     
     if selection == 'q':
         return
