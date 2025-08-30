@@ -101,7 +101,8 @@ echo -e "${BLUE}Happy key organizing! 🔐${NC}"
 
 # Offer to run the script immediately
 printf "\n"
-read -p "Would you like to run the script now? (y/N): " -n 1 -r REPLY </dev/tty
+printf "Would you like to run the script now? (y/N): "
+read -n 1 -r REPLY </dev/tty
 printf "\n"
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     printf "${BLUE}Running SSH to Bitwarden generator...${NC}\n"
