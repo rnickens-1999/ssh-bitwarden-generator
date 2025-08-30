@@ -12,6 +12,8 @@ import glob
 import subprocess
 import json
 import sys
+import socket
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -30,6 +32,105 @@ def get_interactive_input(prompt):
         # If we can't get interactive input, return a default
         print(f"\nCannot read interactive input. Defaulting to processing all keys.")
         return 'all'
+
+def get_generation_details():
+    """Get details about when and where the report was generated."""
+    try:
+        hostname = socket.gethostname()
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        script_path = os.path.abspath(__file__)
+        return hostname, timestamp, script_path
+    except Exception:
+        return "Unknown", "Unknown", "Unknown"
+
+def detect_passphrase_required(private_key_path):
+    """Detect if an SSH private key requires a passphrase."""
+    try:
+        with open(private_key_path, 'r') as f:
+            content = f.read()
+            
+        # Check for OpenSSH format encryption
+        if 'BEGIN OPENSSH PRIVATE KEY' in content:
+            # Look for cipher information indicating encryption
+            lines = content.split('\n')
+            for line in lines[1:10]:  # Check first few lines after header
+                if any(cipher in line for cipher in ['aes', 'des', 'cipher', 'kdf']):
+                    return "Yes"
+            # OpenSSH keys without encryption typically have "none" cipher
+            if 'none' in content[:500]:  # Check early in file
+                return "No"
+            
+        # Check for traditional PEM format encryption
+        if any(marker in content for marker in [
+            'Proc-Type: 4,ENCRYPTED',
+            'DEK-Info:',
+            'ENCRYPTED'
+        ]):
+            return "Yes"
+            
+        # If we can't determine, try to use ssh-keygen to check
+        try:
+            # Try to extract public key - if it succeeds without prompting, no passphrase
+            result = subprocess.run(
+                ['ssh-keygen', '-y', '-f', private_key_path], 
+                capture_output=True, 
+                text=True,
+                timeout=2,
+                input='\n'  # Send empty input
+            )
+            if result.returncode == 0:
+                return "No"
+            else:
+                return "Yes"
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            return "Yes"
+            
+    except Exception:
+        pass
+    
+    return "Unknown"
+
+def extract_email_from_public_key(private_key_path):
+    """Extract email address from SSH public key comment."""
+    public_key_path = private_key_path + '.pub'
+    public_key_content = ""
+    
+    # First, try to read existing .pub file
+    if os.path.exists(public_key_path):
+        try:
+            with open(public_key_path, 'r') as f:
+                public_key_content = f.read().strip()
+        except Exception:
+            pass
+    
+    # If no .pub file or couldn't read it, try to extract from private key
+    if not public_key_content:
+        try:
+            result = subprocess.run(
+                ['ssh-keygen', '-y', '-f', private_key_path], 
+                capture_output=True, 
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                public_key_content = result.stdout.strip()
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            pass
+    
+    # Extract email from public key content
+    if public_key_content:
+        # Email is typically in the comment part (3rd field) of the public key
+        parts = public_key_content.split()
+        if len(parts) >= 3:
+            comment = ' '.join(parts[2:])  # Everything after the key data
+            
+            # Look for email pattern in the comment
+            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+            email_match = re.search(email_pattern, comment)
+            if email_match:
+                return email_match.group()
+    
+    return "Not found"
 
 def get_key_info(private_key_path):
     """Extract information about an SSH key using ssh-keygen."""
@@ -71,6 +172,13 @@ def generate_bitwarden_entry(private_key_path):
     bit_length, key_type, fingerprint = get_key_info(private_key_path)
     creation_date = get_key_creation_date(private_key_path)
     
+    # Get generation details
+    hostname, timestamp, script_path = get_generation_details()
+    
+    # Get enhanced key details
+    requires_passphrase = detect_passphrase_required(private_key_path)
+    associated_email = extract_email_from_public_key(private_key_path)
+    
     # Read private key
     private_key_content = read_key_file(private_key_path)
     
@@ -83,7 +191,7 @@ def generate_bitwarden_entry(private_key_path):
         # Try to generate public key from private key
         try:
             result = subprocess.run(['ssh-keygen', '-y', '-f', private_key_path], 
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 public_key_content = result.stdout.strip()
         except:
@@ -102,19 +210,24 @@ Private Key:
 Public Key:
 {public_key_content}
 
+--- Generation Details ---
+Generated on: {hostname}
+Generated at: {timestamp}
+Script location: {script_path}
+
 --- Key Details ---
 Key Type: {key_type}
 Bit Length: {bit_length}
 Fingerprint: {fingerprint}
 Creation Date: {creation_date}
-Passphrase: [Enter passphrase if key is encrypted]
+Requires Passphrase: {requires_passphrase}
+Associated Email: {associated_email}
 
 --- Connection Details ---
 Server/Service: [Enter server/service name]
 Hostname/IP: [Enter hostname or IP address]
 Port: 22
 Username: [Enter username for this key]
-Associated Email: [Enter associated email]
 
 --- Notes ---
 [Add any additional notes about this key's usage]
