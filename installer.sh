@@ -1,92 +1,220 @@
-#!/bin/bash
-# SSH Key to Bitwarden Generator - Remote Installer
-# Usage: curl https://raw.githubusercontent.com/YOUR_USERNAME/ssh-bitwarden-generator/main/install.sh | bash
+#!/usr/bin/env python3
+"""
+SSH Key to Bitwarden Generator
+Scans for SSH keys and generates formatted content for Bitwarden secure notes.
 
-set -e  # Exit on any error
+GitHub: https://github.com/YOUR_USERNAME/ssh-bitwarden-generator
+Usage: curl https://raw.githubusercontent.com/YOUR_USERNAME/ssh-bitwarden-generator/main/install.sh | bash
+"""
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+import os
+import glob
+import subprocess
+import json
+from datetime import datetime
+from pathlib import Path
 
-# Configuration
-REPO_URL="https://raw.githubusercontent.com/rnickens-1999/ssh-bitwarden-generator/refs/heads/main"
-SCRIPT_NAME="ssh_to_bitwarden.py"
-INSTALL_DIR="$HOME/.local/bin"
-SCRIPT_PATH="$INSTALL_DIR/$SCRIPT_NAME"
+def get_key_info(private_key_path):
+    """Extract information about an SSH key using ssh-keygen."""
+    try:
+        # Get key type and fingerprint
+        result = subprocess.run(['ssh-keygen', '-lf', private_key_path], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            # Parse output: "2048 SHA256:fingerprint comment (RSA)"
+            parts = result.stdout.strip().split()
+            bit_length = parts[0]
+            fingerprint = parts[1]
+            key_type = parts[-1].strip('()')
+            return bit_length, key_type, fingerprint
+    except Exception as e:
+        print(f"Warning: Could not get key info for {private_key_path}: {e}")
+    return "Unknown", "Unknown", "Unknown"
 
-echo -e "${BLUE}SSH Key to Bitwarden Generator - Installer${NC}"
-echo -e "${BLUE}=============================================${NC}"
+def get_key_creation_date(private_key_path):
+    """Get the creation date of the key file."""
+    try:
+        stat = os.stat(private_key_path)
+        return datetime.fromtimestamp(stat.st_ctime).strftime('%Y-%m-%d')
+    except:
+        return "Unknown"
 
-# Check if Python3 is available
-if ! command -v python3 &> /dev/null; then
-    echo -e "${RED}Error: Python3 is not installed. Please install Python3 and try again.${NC}"
-    exit 1
-fi
+def read_key_file(key_path):
+    """Read and return the contents of a key file."""
+    try:
+        with open(key_path, 'r') as f:
+            return f.read().strip()
+    except Exception as e:
+        return f"Error reading file: {e}"
 
-# Check if we're running as root (we don't want to)
-if [ "$EUID" -eq 0 ]; then
-    echo -e "${YELLOW}Warning: Running as root. Installing to /usr/local/bin instead.${NC}"
-    INSTALL_DIR="/usr/local/bin"
-    SCRIPT_PATH="$INSTALL_DIR/$SCRIPT_NAME"
-fi
+def generate_bitwarden_entry(private_key_path):
+    """Generate a formatted Bitwarden secure note entry for an SSH key."""
+    
+    # Get key information
+    bit_length, key_type, fingerprint = get_key_info(private_key_path)
+    creation_date = get_key_creation_date(private_key_path)
+    
+    # Read private key
+    private_key_content = read_key_file(private_key_path)
+    
+    # Look for corresponding public key
+    public_key_path = private_key_path + '.pub'
+    public_key_content = ""
+    if os.path.exists(public_key_path):
+        public_key_content = read_key_file(public_key_path)
+    else:
+        # Try to generate public key from private key
+        try:
+            result = subprocess.run(['ssh-keygen', '-y', '-f', private_key_path], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                public_key_content = result.stdout.strip()
+        except:
+            public_key_content = "Could not generate public key"
+    
+    # Get key name (filename without path)
+    key_name = os.path.basename(private_key_path)
+    
+    # Generate the formatted entry
+    entry = f"""Title: SSH Key - {key_name}
 
-# Create install directory if it doesn't exist
-echo -e "${BLUE}Creating install directory: $INSTALL_DIR${NC}"
-mkdir -p "$INSTALL_DIR"
+Note Content:
+Private Key:
+{private_key_content}
 
-# Download the Python script
-echo -e "${BLUE}Downloading SSH to Bitwarden generator...${NC}"
-if curl -fsSL "$REPO_URL/$SCRIPT_NAME" -o "$SCRIPT_PATH"; then
-    echo -e "${GREEN}✓ Script downloaded successfully${NC}"
-else
-    echo -e "${RED}✗ Failed to download script from $REPO_URL/$SCRIPT_NAME${NC}"
-    exit 1
-fi
+Public Key:
+{public_key_content}
 
-# Make the script executable
-chmod +x "$SCRIPT_PATH"
-echo -e "${GREEN}✓ Script made executable${NC}"
+--- Key Details ---
+Key Type: {key_type}
+Bit Length: {bit_length}
+Fingerprint: {fingerprint}
+Creation Date: {creation_date}
+Passphrase: [Enter passphrase if key is encrypted]
 
-# Check if install directory is in PATH
-if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-    echo -e "${YELLOW}Warning: $INSTALL_DIR is not in your PATH${NC}"
-    echo -e "${YELLOW}Add this line to your ~/.bashrc or ~/.zshrc:${NC}"
-    echo -e "${YELLOW}export PATH=\"\$PATH:$INSTALL_DIR\"${NC}"
-    echo ""
-    echo -e "${BLUE}For now, you can run the script with:${NC}"
-    echo -e "${GREEN}$SCRIPT_PATH${NC}"
-else
-    echo -e "${GREEN}✓ Install directory is in PATH${NC}"
-    echo -e "${BLUE}You can now run the script with:${NC}"
-    echo -e "${GREEN}$SCRIPT_NAME${NC}"
-fi
+--- Connection Details ---
+Server/Service: [Enter server/service name]
+Hostname/IP: [Enter hostname or IP address]
+Port: 22
+Username: [Enter username for this key]
+Associated Email: [Enter associated email]
 
-echo ""
-echo -e "${BLUE}Installation complete!${NC}"
-echo ""
-echo -e "${BLUE}Usage:${NC}"
-if [[ ":$PATH:" == *":$INSTALL_DIR:"* ]]; then
-    echo -e "  ${GREEN}$SCRIPT_NAME${NC}                 # Run interactively"
-else
-    echo -e "  ${GREEN}$SCRIPT_PATH${NC}                 # Run interactively"
-fi
-echo ""
-echo -e "${BLUE}The script will:${NC}"
-echo -e "  • Scan your ~/.ssh directory for SSH keys"
-echo -e "  • Generate Bitwarden-ready secure note entries"
-echo -e "  • Save formatted text files you can copy/paste into Bitwarden"
-echo ""
-echo -e "${BLUE}Happy key organizing! 🔐${NC}"
+--- Notes ---
+[Add any additional notes about this key's usage]
+Key File Location: {private_key_path}
+"""
+    
+    return entry, key_name
 
-# Offer to run the script immediately
-echo ""
-read -p "Would you like to run the script now? (y/N): " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo -e "${BLUE}Running SSH to Bitwarden generator...${NC}"
-    echo ""
-    python3 "$SCRIPT_PATH"
-fi
+def find_ssh_keys():
+    """Find all SSH private keys in the ~/.ssh directory."""
+    ssh_dir = os.path.expanduser('~/.ssh')
+    if not os.path.exists(ssh_dir):
+        print(f"SSH directory {ssh_dir} does not exist.")
+        return []
+    
+    private_keys = set()  # Use set to avoid duplicates
+    
+    # Get all files in ~/.ssh directory
+    for file_path in glob.glob(os.path.join(ssh_dir, '*')):
+        # Skip directories
+        if os.path.isdir(file_path):
+            continue
+            
+        filename = os.path.basename(file_path)
+        
+        # Skip known non-key files
+        skip_files = {
+            'known_hosts', 'known_hosts.old', 'authorized_keys', 
+            'config', 'environment'
+        }
+        
+        # Skip .pub files and known non-key files
+        if (filename.endswith('.pub') or 
+            filename in skip_files or
+            filename.startswith('.')):
+            continue
+        
+        # Check if it looks like a private key by reading the first few lines
+        try:
+            with open(file_path, 'r') as f:
+                content = f.read(200)  # Read first 200 chars
+                # Look for SSH private key headers
+                if any(header in content for header in [
+                    '-----BEGIN OPENSSH PRIVATE KEY-----',
+                    '-----BEGIN RSA PRIVATE KEY-----',
+                    '-----BEGIN DSA PRIVATE KEY-----',
+                    '-----BEGIN EC PRIVATE KEY-----',
+                    '-----BEGIN PRIVATE KEY-----'
+                ]):
+                    private_keys.add(file_path)
+        except (UnicodeDecodeError, PermissionError, IOError):
+            # Skip files that can't be read as text or have permission issues
+            continue
+    
+    return sorted(list(private_keys))
+
+def main():
+    print("SSH Key to Bitwarden Generator")
+    print("=" * 40)
+    
+    # Find SSH keys
+    ssh_keys = find_ssh_keys()
+    
+    if not ssh_keys:
+        print("No SSH private keys found in ~/.ssh/")
+        return
+    
+    print(f"Found {len(ssh_keys)} SSH key(s):")
+    for i, key in enumerate(ssh_keys, 1):
+        print(f"  {i}. {os.path.basename(key)}")
+    
+    print("\nSelect keys to process:")
+    print("  - Enter numbers separated by commas (e.g., 1,3,4)")
+    print("  - Enter 'all' to process all keys")
+    print("  - Enter 'q' to quit")
+    
+    selection = input("\nYour choice: ").strip().lower()
+    
+    if selection == 'q':
+        return
+    
+    selected_keys = []
+    if selection == 'all':
+        selected_keys = ssh_keys
+    else:
+        try:
+            indices = [int(x.strip()) - 1 for x in selection.split(',')]
+            selected_keys = [ssh_keys[i] for i in indices if 0 <= i < len(ssh_keys)]
+        except ValueError:
+            print("Invalid selection. Exiting.")
+            return
+    
+    # Process selected keys
+    output_dir = os.path.expanduser('~/bitwarden_ssh_entries')
+    os.makedirs(output_dir, exist_ok=True)
+    
+    print(f"\nProcessing {len(selected_keys)} key(s)...")
+    print(f"Output will be saved to: {output_dir}")
+    
+    for key_path in selected_keys:
+        try:
+            entry_content, key_name = generate_bitwarden_entry(key_path)
+            
+            # Save to file
+            output_file = os.path.join(output_dir, f"{key_name}_bitwarden.txt")
+            with open(output_file, 'w') as f:
+                f.write(entry_content)
+            
+            print(f"✓ Generated entry for {key_name} -> {output_file}")
+            
+        except Exception as e:
+            print(f"✗ Error processing {key_path}: {e}")
+    
+    print(f"\nDone! Check the files in {output_dir}")
+    print("Copy the content from these files into Bitwarden secure notes.")
+    print("\nTip: You can also print a specific entry by running:")
+    print(f"cat {output_dir}/[keyname]_bitwarden.txt")
+
+if __name__ == "__main__":
+    main()
