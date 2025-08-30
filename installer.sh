@@ -1,6 +1,6 @@
 #!/bin/bash
 # SSH Key to Bitwarden Generator - Remote Installer
-# Usage: curl https://raw.githubusercontent.com/rnickens-1999/ssh-bitwarden-generator/main/install.sh | bash
+# Usage: curl https://raw.githubusercontent.com/YOUR_USERNAME/ssh-bitwarden-generator/main/install.sh | bash
 
 set -e  # Exit on any error
 
@@ -12,7 +12,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-REPO_URL="https://raw.githubusercontent.com/rnickens-1999/ssh-bitwarden-generator/main"
+REPO_URL="https://raw.githubusercontent.com/rnickens-1999/ssh-bitwarden-generator/refs/heads/main"
 SCRIPT_NAME="ssh_to_bitwarden.py"
 INSTALL_DIR="$HOME/.local/bin"
 SCRIPT_PATH="$INSTALL_DIR/$SCRIPT_NAME"
