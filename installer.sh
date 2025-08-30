@@ -1,6 +1,6 @@
 #!/bin/bash
 # SSH Key to Bitwarden Generator - Remote Installer
-# Usage: curl https://raw.githubusercontent.com/YOUR_USERNAME/ssh-bitwarden-generator/main/install.sh | bash
+# Usage: curl https://raw.githubusercontent.com/rnickens-1999/ssh-bitwarden-generator/main/install.sh | bash
 
 set -e  # Exit on any error
 
@@ -37,10 +37,27 @@ fi
 echo -e "${BLUE}Creating install directory: $INSTALL_DIR${NC}"
 mkdir -p "$INSTALL_DIR"
 
+# Check if script already exists
+if [ -f "$SCRIPT_PATH" ]; then
+    echo -e "${YELLOW}Existing installation found at: $SCRIPT_PATH${NC}"
+    read -p "Would you like to upgrade/reinstall? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}Installation cancelled. Existing script unchanged.${NC}"
+        exit 0
+    fi
+    echo -e "${BLUE}Upgrading existing installation...${NC}"
+fi
+
 # Download the Python script
 echo -e "${BLUE}Downloading SSH to Bitwarden generator...${NC}"
 if curl -fsSL "$REPO_URL/$SCRIPT_NAME" -o "$SCRIPT_PATH"; then
-    echo -e "${GREEN}✓ Script downloaded successfully${NC}"
+    if [ -f "$SCRIPT_PATH" ]; then
+        echo -e "${GREEN}✓ Script downloaded/updated successfully${NC}"
+    else
+        echo -e "${RED}✗ Download appeared successful but file not found${NC}"
+        exit 1
+    fi
 else
     echo -e "${RED}✗ Failed to download script from $REPO_URL/$SCRIPT_NAME${NC}"
     exit 1
