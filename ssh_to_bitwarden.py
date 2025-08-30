@@ -14,6 +14,7 @@ import json
 import sys
 import socket
 import re
+import platform
 from datetime import datetime
 from pathlib import Path
 
@@ -34,14 +35,240 @@ def get_interactive_input(prompt):
         return 'all'
 
 def get_generation_details():
-    """Get details about when and where the report was generated."""
+    """Get comprehensive details about when and where the report was generated."""
     try:
         hostname = socket.gethostname()
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         script_path = os.path.abspath(__file__)
-        return hostname, timestamp, script_path
+        os_info = detect_operating_system()
+        wsl_info = detect_wsl_environment()
+        network_info = get_primary_mac_address()
+        
+        return hostname, timestamp, script_path, os_info, wsl_info, network_info
     except Exception:
-        return "Unknown", "Unknown", "Unknown"
+        return "Unknown", "Unknown", "Unknown", "Unknown OS", None, "Unknown"
+
+def detect_operating_system():
+    """Detect operating system with detailed information including architecture."""
+    try:
+        system = platform.system()
+        architecture = platform.machine()
+        
+        if system == "Linux":
+            return detect_linux_details(architecture)
+        elif system == "Windows":
+            return detect_windows_details(architecture)
+        elif system == "Darwin":
+            return detect_macos_details(architecture)
+        else:
+            return f"{system} ({architecture})"
+            
+    except Exception:
+        return "Unknown OS"
+
+def detect_linux_details(architecture):
+    """Detect detailed Linux distribution information."""
+    try:
+        # Try /etc/os-release first (most modern systems)
+        if os.path.exists('/etc/os-release'):
+            with open('/etc/os-release', 'r') as f:
+                lines = f.readlines()
+                
+            os_info = {}
+            for line in lines:
+                if '=' in line:
+                    key, value = line.strip().split('=', 1)
+                    os_info[key] = value.strip('"')
+            
+            name = os_info.get('PRETTY_NAME', os_info.get('NAME', 'Linux'))
+            return f"{name} ({architecture})"
+            
+        # Fallback to /etc/lsb-release
+        elif os.path.exists('/etc/lsb-release'):
+            with open('/etc/lsb-release', 'r') as f:
+                content = f.read()
+                
+            if 'DISTRIB_DESCRIPTION' in content:
+                for line in content.split('\n'):
+                    if line.startswith('DISTRIB_DESCRIPTION='):
+                        desc = line.split('=', 1)[1].strip('"')
+                        return f"{desc} ({architecture})"
+                        
+        # Last resort - check for common distribution files
+        distro_files = {
+            '/etc/ubuntu-release': 'Ubuntu',
+            '/etc/debian_version': 'Debian',
+            '/etc/redhat-release': 'Red Hat',
+            '/etc/centos-release': 'CentOS',
+            '/etc/fedora-release': 'Fedora'
+        }
+        
+        for file_path, distro_name in distro_files.items():
+            if os.path.exists(file_path):
+                try:
+                    with open(file_path, 'r') as f:
+                        version = f.read().strip()
+                    return f"{distro_name} {version} ({architecture})"
+                except:
+                    return f"{distro_name} ({architecture})"
+                    
+        return f"Linux ({architecture})"
+        
+    except Exception:
+        return f"Linux ({architecture})"
+
+def detect_windows_details(architecture):
+    """Detect Windows version information."""
+    try:
+        release = platform.release()
+        version = platform.version()
+        
+        # Try to get more detailed Windows version
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
+                               r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
+            product_name = winreg.QueryValueEx(key, "ProductName")[0]
+            winreg.CloseKey(key)
+            return f"{product_name} ({architecture})"
+        except:
+            pass
+            
+        return f"Windows {release} ({architecture})"
+        
+    except Exception:
+        return f"Windows ({architecture})"
+
+def detect_macos_details(architecture):
+    """Detect macOS version information."""
+    try:
+        version, _, _ = platform.mac_ver()
+        return f"macOS {version} ({architecture})"
+    except Exception:
+        return f"macOS ({architecture})"
+
+def detect_wsl_environment():
+    """Detect if running in WSL and get host Windows information."""
+    try:
+        # Check /proc/version for WSL indicators
+        if os.path.exists('/proc/version'):
+            with open('/proc/version', 'r') as f:
+                proc_version = f.read().lower()
+                
+            if 'microsoft' in proc_version or 'wsl' in proc_version:
+                # Determine WSL version
+                wsl_version = "WSL2" if "wsl2" in proc_version else "WSL1"
+                
+                # Try to get Windows version from registry via WSL
+                try:
+                    # In WSL, we can access Windows registry
+                    result = subprocess.run([
+                        'powershell.exe', '-Command', 
+                        '(Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion").ProductName'
+                    ], capture_output=True, text=True, timeout=5)
+                    
+                    if result.returncode == 0:
+                        windows_version = result.stdout.strip()
+                        return f"{windows_version} ({wsl_version})"
+                except:
+                    pass
+                    
+                # Fallback to generic WSL detection
+                return f"Windows ({wsl_version})"
+                
+    except Exception:
+        pass
+        
+    return None
+
+def get_network_interfaces():
+    """Get available network interfaces using manual parsing."""
+    interfaces = {}
+    
+    try:
+        # Try to get interface list from /sys/class/net/
+        if os.path.exists('/sys/class/net/'):
+            for iface in os.listdir('/sys/class/net/'):
+                if iface != 'lo':  # Skip loopback
+                    interfaces[iface] = {'status': 'unknown', 'mac': None}
+                    
+                    # Check if interface is up
+                    try:
+                        operstate_file = f'/sys/class/net/{iface}/operstate'
+                        if os.path.exists(operstate_file):
+                            with open(operstate_file, 'r') as f:
+                                status = f.read().strip()
+                                interfaces[iface]['status'] = status
+                    except:
+                        pass
+                        
+                    # Get MAC address
+                    try:
+                        mac_file = f'/sys/class/net/{iface}/address'
+                        if os.path.exists(mac_file):
+                            with open(mac_file, 'r') as f:
+                                mac = f.read().strip()
+                                if mac and mac != '00:00:00:00:00:00':
+                                    interfaces[iface]['mac'] = mac
+                    except:
+                        pass
+        
+        # Fallback: parse /proc/net/dev for interface names
+        elif os.path.exists('/proc/net/dev'):
+            with open('/proc/net/dev', 'r') as f:
+                lines = f.readlines()
+                
+            for line in lines[2:]:  # Skip header lines
+                if ':' in line:
+                    iface = line.split(':')[0].strip()
+                    if iface != 'lo':
+                        interfaces[iface] = {'status': 'unknown', 'mac': None}
+                        
+    except Exception:
+        pass
+        
+    return interfaces
+
+def get_primary_mac_address():
+    """Get MAC address with priority: Ethernet > WiFi > Other."""
+    interfaces = get_network_interfaces()
+    
+    if not interfaces:
+        return "Unknown"
+    
+    # Priority lists
+    ethernet_patterns = ['eth', 'enp', 'eno', 'ens']
+    wifi_patterns = ['wlan', 'wlp', 'wlo', 'wls']
+    
+    # Find active interfaces with MAC addresses
+    active_interfaces = {}
+    for iface, info in interfaces.items():
+        if info['mac'] and info['status'] == 'up':
+            active_interfaces[iface] = info
+    
+    # If no active interfaces, use any interface with MAC
+    if not active_interfaces:
+        active_interfaces = {k: v for k, v in interfaces.items() if v['mac']}
+    
+    if not active_interfaces:
+        return "Unknown"
+    
+    # Priority 1: Ethernet interfaces
+    for iface, info in active_interfaces.items():
+        for pattern in ethernet_patterns:
+            if iface.startswith(pattern):
+                return f"Ethernet ({info['mac']})"
+    
+    # Priority 2: WiFi interfaces  
+    for iface, info in active_interfaces.items():
+        for pattern in wifi_patterns:
+            if iface.startswith(pattern):
+                return f"WiFi ({info['mac']})"
+    
+    # Priority 3: Any other interface
+    first_iface = list(active_interfaces.keys())[0]
+    mac = active_interfaces[first_iface]['mac']
+    return f"Network ({mac})"
 
 def detect_passphrase_required(private_key_path):
     """Detect if an SSH private key requires a passphrase."""
@@ -172,8 +399,8 @@ def generate_bitwarden_entry(private_key_path):
     bit_length, key_type, fingerprint = get_key_info(private_key_path)
     creation_date = get_key_creation_date(private_key_path)
     
-    # Get generation details
-    hostname, timestamp, script_path = get_generation_details()
+    # Get comprehensive generation details
+    hostname, timestamp, script_path, os_info, wsl_info, network_info = get_generation_details()
     
     # Get enhanced key details
     requires_passphrase = detect_passphrase_required(private_key_path)
@@ -200,8 +427,25 @@ def generate_bitwarden_entry(private_key_path):
     # Get key name (filename without path)
     key_name = os.path.basename(private_key_path)
     
+    # Create enhanced title with hostname and OS info
+    title = f"SSH Key - {key_name} - {hostname} - {os_info}"
+    
+    # Build generation details section
+    gen_details = f"""--- Generation Details ---
+Generated on: {hostname}
+Generated at: {timestamp}
+Operating System: {os_info}"""
+    
+    # Add WSL information if detected
+    if wsl_info:
+        gen_details += f"\nWSL Environment: {wsl_info}"
+    
+    # Add network interface information
+    gen_details += f"\nNetwork Interface: {network_info}"
+    gen_details += f"\nScript location: {script_path}"
+    
     # Generate the formatted entry
-    entry = f"""Title: SSH Key - {key_name}
+    entry = f"""Title: {title}
 
 Note Content:
 Private Key:
@@ -210,10 +454,7 @@ Private Key:
 Public Key:
 {public_key_content}
 
---- Generation Details ---
-Generated on: {hostname}
-Generated at: {timestamp}
-Script location: {script_path}
+{gen_details}
 
 --- Key Details ---
 Key Type: {key_type}
