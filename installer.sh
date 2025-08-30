@@ -41,7 +41,7 @@ mkdir -p "$INSTALL_DIR"
 if [ -f "$SCRIPT_PATH" ]; then
     echo -e "${YELLOW}Existing installation found at: $SCRIPT_PATH${NC}"
     printf "Would you like to upgrade/reinstall? (y/N): "
-    read -n 1 -r REPLY
+    read -n 1 -r REPLY </dev/tty
     printf "\n"
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${BLUE}Installation cancelled. Existing script unchanged.${NC}"
@@ -101,7 +101,7 @@ echo -e "${BLUE}Happy key organizing! 🔐${NC}"
 
 # Offer to run the script immediately
 printf "\n"
-read -p "Would you like to run the script now? (y/N): " -n 1 -r
+read -p "Would you like to run the script now? (y/N): " -n 1 -r REPLY </dev/tty
 printf "\n"
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     printf "${BLUE}Running SSH to Bitwarden generator...${NC}\n"
