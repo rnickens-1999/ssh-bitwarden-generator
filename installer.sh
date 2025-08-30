@@ -1,6 +1,6 @@
 #!/bin/bash
 # SSH Key to Bitwarden Generator - Remote Installer
-# Usage: curl https://raw.githubusercontent.com/rnickens-1999/ssh-bitwarden-generator/main/install.sh | bash
+# Usage: curl https://raw.githubusercontent.com/YOUR_USERNAME/ssh-bitwarden-generator/main/install.sh | bash
 
 set -e  # Exit on any error
 
@@ -37,11 +37,12 @@ fi
 echo -e "${BLUE}Creating install directory: $INSTALL_DIR${NC}"
 mkdir -p "$INSTALL_DIR"
 
-# Check if script already exists
+# Check if script already exists and prompt for upgrade
 if [ -f "$SCRIPT_PATH" ]; then
     echo -e "${YELLOW}Existing installation found at: $SCRIPT_PATH${NC}"
-    read -p "Would you like to upgrade/reinstall? (y/N): " -n 1 -r
-    echo
+    printf "Would you like to upgrade/reinstall? (y/N): "
+    read -n 1 -r REPLY
+    printf "\n"
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${BLUE}Installation cancelled. Existing script unchanged.${NC}"
         exit 0
@@ -99,11 +100,11 @@ echo ""
 echo -e "${BLUE}Happy key organizing! 🔐${NC}"
 
 # Offer to run the script immediately
-echo ""
+printf "\n"
 read -p "Would you like to run the script now? (y/N): " -n 1 -r
-echo
+printf "\n"
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo -e "${BLUE}Running SSH to Bitwarden generator...${NC}"
-    echo ""
+    printf "${BLUE}Running SSH to Bitwarden generator...${NC}\n"
+    printf "\n"
     python3 "$SCRIPT_PATH"
 fi
