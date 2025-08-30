@@ -130,33 +130,61 @@ def find_ssh_keys():
         print(f"SSH directory {ssh_dir} does not exist.")
         return []
     
-    # Look for common SSH key patterns
-    key_patterns = [
-        os.path.join(ssh_dir, 'id_*'),
-        os.path.join(ssh_dir, '*_rsa'),
-        os.path.join(ssh_dir, '*_ed25519'),
-        os.path.join(ssh_dir, '*_ecdsa'),
-    ]
-    
     private_keys = []
-    for pattern in key_patterns:
-        for key_file in glob.glob(pattern):
-            # Skip .pub files and known_hosts, authorized_keys, etc.
-            if (not key_file.endswith('.pub') and 
-                not key_file.endswith('known_hosts') and
-                not key_file.endswith('authorized_keys') and
-                not key_file.endswith('config')):
-                
-                # Check if it looks like a private key
-                try:
-                    with open(key_file, 'r') as f:
-                        first_line = f.readline()
-                        if ('BEGIN' in first_line and 'PRIVATE KEY' in first_line) or \
-                           first_line.startswith('-----BEGIN OPENSSH PRIVATE KEY-----'):
-                            private_keys.append(key_file)
-                except:
-                    pass
     
+    # Files to exclude from scanning
+    excluded_files = {
+        'known_hosts', 'known_hosts.old', 'authorized_keys', 'config', 
+        'authorized_keys2', 'environment'
+    }
+    
+    # Scan all files in the SSH directory
+    try:
+        for filename in os.listdir(ssh_dir):
+            file_path = os.path.join(ssh_dir, filename)
+            
+            # Skip directories and excluded files
+            if os.path.isdir(file_path):
+                continue
+                
+            # Skip .pub files (public keys)
+            if filename.endswith('.pub'):
+                continue
+                
+            # Skip common SSH config files
+            if filename in excluded_files:
+                continue
+                
+            # Skip files that end with .old or .bak (backups)
+            if filename.endswith(('.old', '.bak')):
+                continue
+            
+            # Check if the file content looks like a private key
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    first_line = f.readline().strip()
+                    
+                    # Check for various SSH private key formats
+                    if (('BEGIN' in first_line and 'PRIVATE KEY' in first_line) or
+                        first_line.startswith('-----BEGIN OPENSSH PRIVATE KEY-----') or
+                        first_line.startswith('-----BEGIN RSA PRIVATE KEY-----') or
+                        first_line.startswith('-----BEGIN DSA PRIVATE KEY-----') or
+                        first_line.startswith('-----BEGIN EC PRIVATE KEY-----') or
+                        first_line.startswith('-----BEGIN ECDSA PRIVATE KEY-----') or
+                        first_line.startswith('-----BEGIN SSH2 ENCRYPTED PRIVATE KEY-----')):
+                        
+                        private_keys.append(file_path)
+                        
+            except (UnicodeDecodeError, PermissionError, OSError):
+                # Skip files that can't be read or are binary
+                continue
+                
+    except PermissionError:
+        print(f"Permission denied accessing {ssh_dir}")
+        return []
+    
+    # Remove duplicates and sort
+    private_keys = sorted(list(set(private_keys)))
     return private_keys
 
 def main():
